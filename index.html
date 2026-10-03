@@ -1819,7 +1819,246 @@ function doDeleteContact(){if(!pendingDeleteId)return;var id=pendingDeleteId;var
 function _stopVoiceForChat(){_stopVoice();}
 function _stopVoice(){try{if(window.speechSynthesis)speechSynthesis.cancel();}catch(e){}}
 })();
-window.doAddContact=function(){var n=addNameInput.value.trim();if(!n){toast('请输入姓名');addNameInput.focus();return;}var p=EMBEDDED_PROFILE.avatarPalette[Math.floor(Math.random()*EMBEDDED_PROFILE.avatarPalette.length)];var id='c'+Date.now()+Math.floor(Math.random()*1000);convos.push({id:id,name:n,initial:n.charAt(0),bg:p.bg,color:p.color,avatar:'',unread:0,noReplyCount:0,typing:false,cardGroupIds:[],autoOn:false,autoMin:5,chatBg:'',bubbleCss:'',api:null,draft:'',momentCover:'',_lastAuto:0,messages:[]});saveConvos();renderChatList();renderContactList();closeAddModal();toast('已添加「'+n+'」');showScreen('chats');setTimeout(function(){openChat(id);},160);};
+window.doAddContact=function(){var n=addNameInput.value.trim();if(!n){toast('请输入姓名');addNameInput.focus();return;}var p=EMBEDDED_PROFILE.avatarPalette[Math.floor(Math.random()*EMBEDDED_PROFILE.avatarPalette.length)];var id='c'+Date.now()+Math.floor(Math.random()*1000);convos.push({id:id,name:n,initial:n.charAt(0),bg:p.bg,color:p.color,avatar:'',unread:0,noReplyCount:0,typing:false,cardGroupIds:[],autoOn:false,autoMin:5,chatBg:'',bubbleCss:'',api:null,draft:'',momentCover:'',_lastAuto:0,messages:[]});saveConvos();renderChatList();renderContactList();closeAddModal();toast('已添加「'+n+'」');showScreen('chats');setTimeout(function(){openChat(id);},160)/* ===== 分片导出/导入（接管导出导入按钮） ===== */
+(function(){
+if(window.__simchatPatch)return;
+window.__simchatPatch=true;
+
+function _patch(id,handler){
+  var old=document.getElementById(id);
+  if(!old)return;
+  var nu=old.cloneNode(true);
+  old.parentNode.replaceChild(nu,old);
+  nu.addEventListener('click',handler);
+}
+
+function _busyShow(t){ if(typeof window._showBusy==='function') window._showBusy(t); else toast(t); }
+function _busyHide(){ if(typeof window._hideBusy==='function') window._hideBusy(); }
+
+function _dl(blob,fname,sizeMB){
+  var file=new File([blob],fname,{type:blob.type||'application/octet-stream'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    navigator.share({files:[file],title:'聊天备份'}).then(function(){
+      toast('已保存 '+sizeMB+'MB');
+    }).catch(function(err){
+      if(err&&err.name==='AbortError'){toast('已取消');return;}
+      _dl2(blob,fname,sizeMB);
+    });
+    return;
+  }
+  _dl2(blob,fname,sizeMB);
+}
+function _dl2(blob,fname,sizeMB){
+  try{
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url;a.download=fname;a.style.display='none';
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){try{a.remove();}catch(e){}setTimeout(function(){try{URL.revokeObjectURL(url);}catch(e){}},60000);},3000);
+    toast('已导出 '+sizeMB+'MB');
+  }catch(e){toast('下载失败');}
+}
+
+function doExport(){
+  toast('正在收集数据…');
+  var keys=['cards','convos','statusHistory','moments','homeBg','lockBg','momentCover','letters','couple','spaceData','wallet','walletTheirs','gifts','emojiList'];
+  Promise.all(keys.map(function(k){return idbGet(k).catch(function(){return null;});})).then(function(r){
+    var data={};
+    keys.forEach(function(k,i){data[k]=r[i];});
+    data.profile={me:myProfile,avatarPalette:EMBEDDED_PROFILE.avatarPalette,emojiPool:EMBEDDED_PROFILE.emojiPool};
+    var extra={};
+    try{['lockGreet','moments_freq','chat_settings','focus_records','music_bg','moment_bg','moment_bg_opacity','local_music_v1','my_voice_v1','dark_mode'].forEach(function(k){var v=localStorage.getItem(k);if(v)extra[k]=v;});}catch(e){}
+    data.extra=extra;
+    try{data.prefs=JSON.parse(localStorage.getItem('sim-chat-prefs-v1')||'{}');}catch(e){data.prefs={};}
+    var parts=[{k:'meta',v:{app:'sim-chat',version:4,exportedAt:new Date().toISOString()}}];
+    ['cards','profile','prefs','homeBg','lockBg','momentCover','letters','couple','spaceData','wallet','walletTheirs','gifts','emojiList','statusHistory','extra'].forEach(function(k){
+      if(data[k]!==undefined&&data[k]!==null) parts.push({k:k,v:data[k]});
+    });
+    ['convos','moments'].forEach(function(k){
+      var arr=data[k]||[];
+      for(var i=0;i<arr.length;i+=8) parts.push({k:k,i:i,v:arr.slice(i,i+8)});
+    });
+    var chunks=[new TextEncoder().encode('SIMBAK01')];
+    var nBuf=new Uint8Array(4); new DataView(nBuf.buffer).setUint32(0,parts.length,true); chunks.push(nBuf);
+    for(var j=0;j<parts.length;j++){
+      var enc=new TextEncoder().encode(JSON.stringify(parts[j]));
+      var lb=new Uint8Array(4); new DataView(lb.buffer).setUint32(0,enc.length,true);
+      chunks.push(lb); chunks.push(enc);
+    }
+    var blob=new Blob(chunks,{type:'application/octet-stream'});
+    var sizeMB=(blob.size/1024/1024).toFixed(1);
+    _dl(blob,'聊天备份-'+new Date().toISOString().slice(0,10)+'.simchat',sizeMB);
+  }).catch(function(e){toast('导出失败：'+((e&&e.message)||e));});
+}
+
+function doImportSimchat(file){
+  return new Promise(function(resolve,reject){
+    var convosArr=[],momentsArr=[],others={};
+    var offset=0;
+    var dec=new TextDecoder();
+    function readSlice(len){
+      var b=file.slice(offset,offset+len); offset+=len; return b.arrayBuffer();
+    }
+    (async function(){
+      var magic=dec.decode(await readSlice(8));
+      if(magic!=='SIMBAK01') throw new Error('不是备份文件');
+      var N=new DataView(await readSlice(4)).getUint32(0,true);
+      for(var i=0;i<N;i++){
+        var L=new DataView(await readSlice(4)).getUint32(0,true);
+        var part=JSON.parse(dec.decode(await readSlice(L)));
+        if(part.k==='convos') convosArr=convosArr.concat(part.v);
+        else if(part.k==='moments') momentsArr=momentsArr.concat(part.v);
+        else if(part.k!=='meta') others[part.k]=part.v;
+        if(((i+1)%5===0)||i===N-1) _busyShow('正在导入 '+(i+1)+'/'+N+'…');
+        await new Promise(function(r){setTimeout(r,0);});
+      }
+      var data=Object.assign({},others);
+      data.convos=convosArr; data.moments=momentsArr;
+      await new Promise(function(res,rej){
+        _doImportSequential(data,function(succ,fail){
+          if(fail&&!succ) rej(new Error('写入失败'));
+          else res({succ:succ,fail:fail});
+        });
+      });
+    })().then(resolve).catch(reject);
+  });
+}
+
+function doImport(){
+  var body='<div style="font-size:13px;color:#8b929c;margin-bottom:8px;">选择 .simchat 备份文件（分片，手机不卡）</div><textarea id="iaT" style="width:100%;height:120px;padding:10px;border:1px solid #eceef1;border-radius:10px;font:12px/1.5 monospace;resize:none;box-sizing:border-box;white-space:pre;overflow:auto;"></textarea>';
+  var ft='<div class="modal-actions"><button type="button" class="modal-btn ghost" id="iaC">取消</button><button type="button" class="modal-btn ghost" id="iaF">从文件</button><button type="button" class="modal-btn primary" id="iaO">导入</button></div>';
+  var m=makeModal('导入全部数据',body,ft,360);
+  var ta=m.box.querySelector('#iaT');
+  m.box.querySelector('#iaC').addEventListener('click',m.close);
+  m.box.querySelector('#iaF').addEventListener('click',function(){
+    var fi=document.createElement('input');fi.type='file';fi.accept='.simchat';
+    fi.style.cssText='position:fixed;left:-9999px;';document.body.appendChild(fi);
+    fi.addEventListener('change',function(){
+      var f=fi.files&&fi.files[0]; document.body.removeChild(fi); if(!f)return;
+      var name=(f.name||'').toLowerCase();
+      if(name.indexOf('.simchat')>=0){
+        _busyShow('正在读取分片…');
+        doImportSimchat(f).then(function(res){
+          _busyHide();
+          toast('导入完成：成功 '+res.succ+'，失败 '+res.fail);
+          setTimeout(function(){location.reload();},900);
+        }).catch(function(e){ _busyHide(); toast('导入失败：'+((e&&e.message)||e)); });
+        return;
+      }
+      toast('请选 .simchat 文件');
+    });
+    fi.click();
+  });
+  m.box.querySelector('#iaO').addEventListener('click',function(){
+    var t=ta.value.trim(); if(!t){toast('请粘贴');return;}
+    var okBtn=m.box.querySelector('#iaO'); okBtn.disabled=true; toast('正在解析…');
+    parseJsonAsync(t).then(function(d){
+      if(!d||typeof d!=='object'){toast('JSON 无效');okBtn.disabled=false;return;}
+      askConfirm('导入全部数据','导入将覆盖当前全部数据，确定继续？',function(){
+        m.close();
+        _doImportSequential(d,function(succ,fail){
+          toast('导入完成：成功 '+succ+'，失败 '+fail);
+          setTimeout(function(){location.reload();},900);
+        });
+      });
+    }).catch(function(err){toast('解析失败：'+(err.message||err));okBtn.disabled=false;});
+  });
+}
+
+_patch('exportBtn',doExport);
+_patch('importBtn',doImport);
+})();;};
+/* ===== 分片导出/导入（不依赖页面函数） ===== */
+(function(){
+function openDB(){return new Promise(function(res,rej){var r=indexedDB.open('simChatDB',2);r.onsuccess=function(e){res(e.target.result);};r.onerror=function(){rej(r.error);};});}
+function getAll(db,n){return new Promise(function(res,rej){var tx=db.transaction(n,'readonly');var r=tx.objectStore(n).getAll();r.onsuccess=function(){res(r.result||[]);};r.onerror=function(){rej(r.error);};});}
+function putAll(db,n,items){return new Promise(function(res,rej){var tx=db.transaction(n,'readwrite');var st=tx.objectStore(n);st.clear();items.forEach(function(it){st.put(it);});tx.oncomplete=function(){res();};tx.onerror=function(){rej(tx.error);};});}
+function tip(t){var el=document.getElementById('_pTip');if(!el){el=document.createElement('div');el.id='_pTip';el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;z-index:99999;text-align:center;padding:20px;line-height:1.6;';document.body.appendChild(el);}el.textContent=t;el.style.display='flex';}
+function hideTip(){var el=document.getElementById('_pTip');if(el)el.style.display='none';}
+
+async function doExport(){
+  tip('正在收集数据…');
+  try{
+    var db=await openDB();
+    var stores=Array.from(db.objectStoreNames);
+    var parts=[{k:'_meta',v:{app:'simchat',ver:1,exportedAt:new Date().toISOString(),stores:stores}}];
+    for(var si=0;si<stores.length;si++){
+      var s=stores[si];
+      var arr=await getAll(db,s);
+      for(var i=0;i<arr.length;i+=5){
+        parts.push({k:s,i:i,v:arr.slice(i,i+5)});
+        tip('正在打包 '+s+' '+(i+5)+'/'+arr.length+'…');
+        await new Promise(function(r){setTimeout(r,0);});
+      }
+    }
+    tip('正在生成文件…');
+    var chunks=[new TextEncoder().encode('SIMPACK1')];
+    var nb=new Uint8Array(4);new DataView(nb.buffer).setUint32(0,parts.length,true);chunks.push(nb);
+    for(var p=0;p<parts.length;p++){
+      var enc=new TextEncoder().encode(JSON.stringify(parts[p]));
+      var lb=new Uint8Array(4);new DataView(lb.buffer).setUint32(0,enc.length,true);
+      chunks.push(lb);chunks.push(enc);
+    }
+    var blob=new Blob(chunks,{type:'application/octet-stream'});
+    var fname='聊天备份-'+new Date().toISOString().slice(0,10)+'.simchat';
+    var file=new File([blob],fname,{type:'application/octet-stream'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      tip('已生成 '+(blob.size/1048576).toFixed(1)+'MB，弹出分享…');
+      try{await navigator.share({files:[file],title:'聊天备份'});hideTip();alert('已保存 '+fname);return;}catch(e){if(e&&e.name==='AbortError'){hideTip();return;}}
+    }
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');a.href=url;a.download=fname;a.style.display='none';
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){try{a.remove();}catch(e){}setTimeout(function(){try{URL.revokeObjectURL(url);}catch(e){}},60000);},3000);
+    hideTip();alert('已导出 '+(blob.size/1048576).toFixed(1)+'MB：'+fname);
+  }catch(e){hideTip();alert('导出失败：'+(e.message||e));}
+}
+
+async function doImport(file){
+  tip('正在读取…');
+  try{
+    var db=await openDB();
+    var buf=await file.arrayBuffer();
+    var u8=new Uint8Array(buf);
+    var magic=new TextDecoder().decode(u8.slice(0,8));
+    if(magic!=='SIMPACK1'){hideTip();alert('不是本格式的备份文件');return;}
+    var off=8;
+    var N=new DataView(u8.slice(off,off+4).buffer).getUint32(0,true);off+=4;
+    var grouped={};
+    for(var i=0;i<N;i++){
+      var L=new DataView(u8.slice(off,off+4).buffer).getUint32(0,true);off+=4;
+      var part=JSON.parse(new TextDecoder().decode(u8.slice(off,off+L)));off+=L;
+      if(part.k==='_meta')continue;
+      if(!grouped[part.k])grouped[part.k]=[];
+      grouped[part.k]=grouped[part.k].concat(part.v);
+      if(((i+1)%5===0)||i===N-1)tip('正在解析 '+(i+1)+'/'+N+'…');
+      await new Promise(function(r){setTimeout(r,0);});
+    }
+    var keys=Object.keys(grouped);
+    for(var ki=0;ki<keys.length;ki++){
+      var s=keys[ki];
+      if(!db.objectStoreNames.contains(s))continue;
+      tip('正在写入 '+s+'…');
+      await putAll(db,s,grouped[s]);
+    }
+    hideTip();
+    alert('导入完成，即将刷新');
+    location.reload();
+  }catch(e){hideTip();alert('导入失败：'+(e.message||e));}
+}
+
+function setup(){
+  var eb=document.getElementById('exportBtn');
+  var ib=document.getElementById('importBtn');
+  if(eb){var ne=eb.cloneNode(true);eb.parentNode.replaceChild(ne,eb);ne.addEventListener('click',doExport);}
+  if(ib){var ni=ib.cloneNode(true);ib.parentNode.replaceChild(ni,ib);ni.addEventListener('click',function(){
+    var fi=document.createElement('input');fi.type='file';fi.accept='.simchat';
+    fi.addEventListener('change',function(){var f=fi.files&&fi.files[0];if(f)doImport(f);});
+    fi.click();
+  });}
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setup);else setup();
+})();
 </script>
 </body>
 </html>
