@@ -1483,8 +1483,52 @@ c.messages.push(msgObj);
 if(msgObj.from==='them'&&msgObj.type==='text'&&Math.random()<0.03){_theGiftToMe(c);}
 if(currentId===c.id){chatStatusEl.textContent=getTodayStatus(c.id);renderMessages(true);if(msgObj.type==='pat')setTimeout(_shakeMyAvatar,80);}else{c.unread=(c.unread||0)+1;}renderChatList();saveConvos();playSound('notify');notifyNewMessage(c,msgObj.text||cardPreviewText(msgObj));_maybeAutoRevoke(c,msgObj);if(msgObj.type!=='image'&&msgObj.from==='them'&&!msgObj.revoked&&Math.random()<0.18){setTimeout(function(){var text2=maybeAddEmoji(pickReply(c));var m2={from:'them',text:text2,time:nowTime(),ts:Date.now()};c.messages.push(m2);if(currentId===c.id){renderMessages(true);}else{c.unread=(c.unread||0)+1;}renderChatList();saveConvos();playSound('notify');notifyNewMessage(c,text2);_maybeAutoRevoke(c,m2);},1200+Math.random()*2500);}},delayMs);}
 function setupAutoSend(){if(autoSendTimer){clearInterval(autoSendTimer);autoSendTimer=null;}autoSendTimer=setInterval(function(){var now=Date.now();var dirty=false;convos.forEach(function(c){if(!c.autoOn)return;var mins=parseFloat(c.autoMin)||5;if(mins<1)mins=1;var interval=mins*60*1000;if(!c._lastAuto){c._lastAuto=now;dirty=true;return;}if(now-c._lastAuto>=interval){c._lastAuto=now;dirty=true;var text=maybeAddEmoji(pickReply(c));c.messages.push({from:'them',text:text,time:nowTime(),ts:Date.now()});if(currentId===c.id)renderMessages(true);else c.unread=(c.unread||0)+1;renderChatList();saveConvos();playSound('notify');notifyNewMessage(c,text);}});if(dirty)saveConvos();},20000);}
-function pauseBackgroundTimers(){if(autoSendTimer){clearInterval(autoSendTimer);autoSendTimer=null;}if(momentCheckTimer){clearInterval(momentCheckTimer);momentCheckTimer=null;}if(proactiveCheckTimer){clearInterval(proactiveCheckTimer);proactiveCheckTimer=null;}Object.keys(replyTimers).forEach(function(id){clearTimeout(replyTimers[id]);delete replyTimers[id];});Object.keys(readTimers).forEach(function(id){clearTimeout(readTimers[id]);delete readTimers[id];});convos.forEach(function(c){c.typing=false;});}
-function resumeBackgroundTimers(){var now=Date.now();var dirty=false;convos.forEach(function(c){var cDirty=false;if(c.autoOn){var mins=parseFloat(c.autoMin)||5;if(mins<1)mins=1;var interval=mins*60*1000;if(!c._lastAuto){c._lastAuto=now;cDirty=true;}else if(now-c._lastAuto>=interval){var missed=Math.floor((now-c._lastAuto)/interval);missed=Math.min(missed,3);for(var i=0;i<missed;i++){var text=maybeAddEmoji(pickReply(c));c.messages.push({from:'them',text:text,time:nowTime(),ts:Date.now()-(missed-i)*interval});c.unread=(c.unread||0)+1;}c._lastAuto=now;cDirty=true;playSound('notify');}}if(!c.typing&&!replyTimers[c.id]){var lastMsg=lastMessage(c);if(lastMsg&&lastMsg.from==='me'&&!lastMsg.revoked&&(now-lastMsg.ts>15000)){var text2=maybeAddEmoji(pickReply(c));c.messages.push({from:'them',text:text2,time:nowTime(),ts:Date.now()});c.unread=(c.unread||0)+1;cDirty=true;playSound('notify');}}if(cDirty){dirty=true;if(c.id===currentId)renderMessages(true);renderChatList();}});if(dirty)saveConvos();if(typeof tickLetters==='function')tickLetters();if(typeof _coupleDailyAuto==='function')_coupleDailyAuto();if(typeof _giftDailyAuto==='function')_giftDailyAuto();if(typeof _incomeDailyAuto==='function')_incomeDailyAuto();setupAutoSend();checkMomentPost();startMomentWatch();checkProactiveLetters();startProactiveLetterWatch();}
+function pauseBackgroundTimers(){
+  if(autoSendTimer){clearInterval(autoSendTimer);autoSendTimer=null;}
+  if(momentCheckTimer){clearInterval(momentCheckTimer);momentCheckTimer=null;}
+  if(proactiveCheckTimer){clearInterval(proactiveCheckTimer);proactiveCheckTimer=null;}
+}
+function resumeBackgroundTimers(){
+  var now=Date.now();
+  var dirty=false;
+  convos.forEach(function(c){
+    var cDirty=false;
+    if(c.autoOn){
+      var mins=parseFloat(c.autoMin)||5;
+      if(mins<1)mins=1;
+      var interval=mins*60*1000;
+      if(!c._lastAuto){c._lastAuto=now;cDirty=true;}
+      else if(now-c._lastAuto>=interval){
+        var missed=Math.floor((now-c._lastAuto)/interval);
+        missed=Math.min(missed,3);
+        for(var i=0;i<missed;i++){
+          var text=maybeAddEmoji(pickReply(c));
+          c.messages.push({from:'them',text:text,time:nowTime(),ts:Date.now()-(missed-i)*interval});
+          c.unread=(c.unread||0)+1;
+        }
+        c._lastAuto=now;cDirty=true;playSound('notify');
+      }
+    }
+    if(!c.typing&&!replyTimers[c.id]){
+      var lastMsg=lastMessage(c);
+      if(lastMsg&&lastMsg.from==='me'&&!lastMsg.revoked){
+        scheduleReply(c);
+        cDirty=true;
+      }
+    }
+    if(cDirty){
+      dirty=true;
+      if(c.id===currentId)renderMessages(true);
+      renderChatList();
+    }
+  });
+  if(dirty)saveConvos();
+  if(typeof tickLetters==='function')tickLetters();
+  if(typeof _coupleDailyAuto==='function')_coupleDailyAuto();
+  if(typeof _giftDailyAuto==='function')_giftDailyAuto();
+  if(typeof _incomeDailyAuto==='function')_incomeDailyAuto();
+  setupAutoSend();checkMomentPost();startMomentWatch();checkProactiveLetters();startProactiveLetterWatch();
+}
 document.addEventListener('visibilitychange',function(){if(document.hidden){pauseBackgroundTimers();}else{resumeBackgroundTimers();}});
 function updateLockTime(){var d=new Date();var hh=('0'+d.getHours()).slice(-2),mm=('0'+d.getMinutes()).slice(-2);var t=document.getElementById('lsTime');if(t)t.textContent=hh+':'+mm;var wd=['星期日','星期一','星期二','星期三','星期四','星期五','星期六'][d.getDay()];var dt=document.getElementById('lsDate');if(dt)dt.textContent=(d.getMonth()+1)+'月'+d.getDate()+'日 '+wd;var g=document.getElementById('lsGreet');if(g&&document.activeElement===g)return;if(g){var custom='';try{custom=localStorage.getItem('lockGreet')||'';}catch(e){}if(custom){if(g.textContent!==custom)g.textContent=custom;}else{var h=d.getHours();var greet;if(h<5)greet='夜深了';else if(h<9)greet='早上好';else if(h<11)greet='上午好';else if(h<13)greet='中午好';else if(h<18)greet='下午好';else if(h<23)greet='晚上好';else greet='夜深了';if(g.textContent!==greet)g.textContent=greet;}}}
 function initLockScreen(){var el=document.getElementById('lockscreen');if(!el)return;updateLockTime();var g=document.getElementById('lsGreet');if(g)g.addEventListener('blur',function(){var t=(g.textContent||'').trim();if(!t)return;var d=new Date(),h=d.getHours();var auto;if(h<5)auto='夜深了';else if(h<9)auto='早上好';else if(h<11)auto='上午好';else if(h<13)auto='中午好';else if(h<18)auto='下午好';else if(h<23)auto='晚上好';else auto='夜深了';try{if(t===auto)localStorage.removeItem('lockGreet');else localStorage.setItem('lockGreet',t);}catch(e){}});if(g){var _lp=null;function _clearLp(){if(_lp){clearTimeout(_lp);_lp=null;}}g.addEventListener('touchstart',function(){_lp=setTimeout(function(){try{localStorage.removeItem('lockGreet');}catch(e){}toast('已恢复自动问候');updateLockTime();},800);},{passive:true});g.addEventListener('touchend',_clearLp);g.addEventListener('touchcancel',_clearLp);g.addEventListener('mousedown',function(){_lp=setTimeout(function(){try{localStorage.removeItem('lockGreet');}catch(e){}toast('已恢复自动问候');updateLockTime();},800);});g.addEventListener('mouseup',_clearLp);g.addEventListener('mouseleave',_clearLp);}var tap=document.getElementById('lsTap'),mask=document.getElementById('pwdMask'),card=document.getElementById('pwdCard'),dots=document.getElementById('pwdDots'),err=document.getElementById('pwdErr'),inp=document.getElementById('pwdInput'),code='';function rd(){for(var i=0;i<dots.children.length;i++)dots.children[i].classList.toggle('fill',i<code.length);}function rs(){code='';inp.value='';rd();err.classList.remove('show');}function op(){rs();mask.classList.add('show');setTimeout(function(){try{inp.focus();}catch(e){}},120);}function cl(){mask.classList.remove('show');try{inp.blur();}catch(e){}}function sh(){card.classList.add('pwd-shake');err.classList.add('show');setTimeout(function(){card.classList.remove('pwd-shake');},520);}function ck(){if(code.length<4)return;if(code===LOCK_PWD){setTimeout(function(){cl();el.classList.add('hide');},380);}else{sh();setTimeout(rs,560);}}if(tap)tap.addEventListener('click',op);if(mask)mask.addEventListener('click',function(e){if(e.target===mask)cl();});if(inp)inp.addEventListener('input',function(){inp.value=inp.value.replace(/\D/g,'').slice(0,4);code=inp.value;rd();if(code.length===4)setTimeout(ck,140);});}
