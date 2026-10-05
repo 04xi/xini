@@ -1342,6 +1342,7 @@ var VOICE_KEY='my_voice_v1';
 function loadCustomVoices(){try{return JSON.parse(localStorage.getItem(VOICE_KEY)||'[]');}catch(e){return[];}}
 function saveCustomVoices(a){try{localStorage.setItem(VOICE_KEY,JSON.stringify(a));return true;}catch(e){toast('存储空间不足');return false;}}
 var _walletCurCid='__me__';
+var SHOW_WIPE_BTN = false;   // 默认隐藏，改成 true 就显示
 function loadWallet(){return idbGet('wallet').then(function(v){return (v&&typeof v==='object')?v:{records:[]};});}
 function saveWallet(w){return idbSet('wallet',w);}
 var WALLET_MAX=100000000;var WALLET_SINGLE_MAX=100000;function _walletBalOf(w){var b=0;(w.records||[]).forEach(function(r){if(r.dir==='in')b+=r.amount;else b-=r.amount;});return b;}function _walletAdd(dir,kind,amount,note,cid,cb){loadWallet().then(function(w){if(!Array.isArray(w.records))w.records=[];var amt=parseFloat(amount)||0;if(!isFinite(amt) || isNaN(amt) || amt < 0) amt = 0;if(amt > 1000000) amt = 1000000;var exempt=(dir==='in'&&(kind==='lottery'||kind==='loan'));if(!exempt&&amt>WALLET_SINGLE_MAX)amt=WALLET_SINGLE_MAX;var bal=_walletBalOf(w);if(dir==='out'){if(amt>bal)amt=bal;if(amt<=0){cb&&cb();return;}}else{if(bal>=WALLET_MAX){cb&&cb();return;}if(bal+amt>WALLET_MAX)amt=WALLET_MAX-bal;}w.records.push({id:'w'+Date.now()+Math.floor(Math.random()*1000),dir:dir,kind:kind,amount:amt,note:note||'',cid:cid||'',time:Date.now()});if(w.records.length>500)w.records=w.records.slice(-500);return saveWallet(w);}).then(function(){cb&&cb();});}
@@ -1354,7 +1355,7 @@ function openWallet(){var sel=document.getElementById('walletWho');sel.innerHTML
 function _wipeWallet(){askConfirm('清零零钱','把「我」的零钱余额归零？交易记录会保留。',function(){loadWallet().then(function(w){w.records=[];return saveWallet(w);}).then(function(){toast('零钱已归零');renderWallet();});});}
 function renderWallet(){var body=document.getElementById('walletBody');if(!body)return;
 if(_walletCurCid==='__me__'){loadWallet().then(function(w){var bal=_walletBalance(w);var h='<div class="wallet-card"><div class="wl">零钱余额</div><div class="wb">¥'+bal.toFixed(2)+'</div><div class="ws">共 '+(w.records||[]).length+' 笔交易</div></div>';
-h+='<div style="padding:0 16px 12px"><button type="button" id="_wipeWalletBtn" style="width:100%;padding:11px;border:1px solid #f0d0d0;border-radius:12px;background:#fdf4f4;color:#e5484d;font:inherit;font-size:14px;font-weight:500;cursor:pointer">清零零钱</button></div>';var recs=(w.records||[]).slice().sort(function(a,b){return b.time-a.time;});if(!recs.length){h+='<div class="wallet-empty">还没有交易记录<br>收到的转账和红包会记在这里</div>';}else{h+='<div class="wallet-sec">交易明细</div>';recs.forEach(function(r){var c=findConvoById(r.cid);var name=c?c.name:'已删除联系人';var isIn=r.dir==='in';var icon=isIn?(r.kind==='redpacket'?'🧧':(r.kind==='gift'?'🎁':'💸')):(r.kind==='gift'?'🎁':(r.kind==='redpacket'?'🧧':'💸'));var t=new Date(r.time);var ts=(t.getMonth()+1)+'月'+t.getDate()+'日 '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2);var title=(isIn?'来自 ':'转给 ')+name+(r.note?' · '+r.note:'');h+='<div class="wallet-item"><div class="wi-ic">'+icon+'</div><div class="wi-main"><div class="wi-title">'+esc(title)+'</div><div class="wi-sub">'+esc(ts)+'</div></div><div class="wi-amt '+(isIn?'in':'out')+'">'+(isIn?'+':'-')+'¥'+r.amount.toFixed(2)+'</div></div>';});}body.innerHTML=h;var wb2=body.querySelector('#_wipeWalletBtn');if(wb2)wb2.onclick=_wipeWallet;});return;}
+if(SHOW_WIPE_BTN){h+='<div style="padding:0 16px 12px"><button type="button" id="_wipeWalletBtn" style="width:100%;padding:11px;border:1px solid #f0d0d0;border-radius:12px;background:#fdf4f4;color:#e5484d;font:inherit;font-size:14px;font-weight:500;cursor:pointer">清零零钱</button></div>';}var recs=(w.records||[]).slice().sort(function(a,b){return b.time-a.time;});if(!recs.length){h+='<div class="wallet-empty">还没有交易记录<br>收到的转账和红包会记在这里</div>';}else{h+='<div class="wallet-sec">交易明细</div>';recs.forEach(function(r){var c=findConvoById(r.cid);var name=c?c.name:'已删除联系人';var isIn=r.dir==='in';var icon=isIn?(r.kind==='redpacket'?'🧧':(r.kind==='gift'?'🎁':'💸')):(r.kind==='gift'?'🎁':(r.kind==='redpacket'?'🧧':'💸'));var t=new Date(r.time);var ts=(t.getMonth()+1)+'月'+t.getDate()+'日 '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2);var title=(isIn?'来自 ':'转给 ')+name+(r.note?' · '+r.note:'');h+='<div class="wallet-item"><div class="wi-ic">'+icon+'</div><div class="wi-main"><div class="wi-title">'+esc(title)+'</div><div class="wi-sub">'+esc(ts)+'</div></div><div class="wi-amt '+(isIn?'in':'out')+'">'+(isIn?'+':'-')+'¥'+r.amount.toFixed(2)+'</div></div>';});}body.innerHTML=h;var wb2=body.querySelector('#_wipeWalletBtn');if(wb2)wb2.onclick=_wipeWallet;});return;}
 var c=findConvoById(_walletCurCid);if(!c){body.innerHTML='<div class="wallet-empty">联系人已删除</div>';return;}
 loadTheirsWallet().then(function(w){var recs=(w[_walletCurCid]&&Array.isArray(w[_walletCurCid].records))?w[_walletCurCid].records:[];var bal=0;recs.forEach(function(r){if(r.dir==='in')bal+=r.amount;else bal-=r.amount;});var h='<div class="wallet-card" style="background:linear-gradient(135deg,#8b929c,#6b7280);box-shadow:0 8px 24px rgba(107,114,128,.3)"><div class="wl">'+esc(c.name)+' 的零钱</div><div class="wb">¥'+bal.toFixed(2)+'</div><div class="ws">共 '+recs.length+' 笔交易</div></div>';var sorted=recs.slice().sort(function(a,b){return b.time-a.time;});if(!sorted.length){h+='<div class="wallet-empty">还没有交易记录<br>ta 的收入会记在这里</div>';}else{h+='<div class="wallet-sec">交易明细</div>';sorted.forEach(function(r){var isIn=r.dir==='in';var icon;if(r.kind==='income')icon='💰';else if(r.kind==='gift')icon='🎁';else if(r.kind==='redpacket')icon='🧧';else icon='💸';var t=new Date(r.time);var ts=(t.getMonth()+1)+'月'+t.getDate()+'日 '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2);var title;if(isIn){if(r.kind==='income')title='收入 · '+(r.note||'进账');else if(r.kind==='gift')title='收礼物'+(r.note?' · '+r.note:'');else if(r.kind==='redpacket')title='收红包'+(r.note?' · '+r.note:'');else title='收转账'+(r.note?' · '+r.note:'');}else{if(r.kind==='gift')title='送礼物给你'+(r.note?' · '+r.note:'');else if(r.kind==='redpacket')title='发红包给你'+(r.note?' · '+r.note:'');else title='转账给你'+(r.note?' · '+r.note:'');}h+='<div class="wallet-item"><div class="wi-ic">'+icon+'</div><div class="wi-main"><div class="wi-title">'+esc(title)+'</div><div class="wi-sub">'+esc(ts)+'</div></div><div class="wi-amt '+(isIn?'in':'out')+'">'+(isIn?'+':'-')+'¥'+r.amount.toFixed(2)+'</div></div>';});}body.innerHTML=h;});}
 var GIFT_LIST=[{k:'rose',e:'🌹',n:'玫瑰',p:9.9},{k:'flower',e:'💐',n:'花束',p:39},{k:'cake',e:'🎂',n:'蛋糕',p:68},{k:'chocolate',e:'🍫',n:'巧克力',p:26},{k:'coffee',e:'☕',n:'咖啡',p:19},{k:'dessert',e:'🍰',n:'甜点',p:15},{k:'bear',e:'🧸',n:'玩偶',p:88},{k:'perfume',e:'🌸',n:'香水',p:199},{k:'ring',e:'💍',n:'戒指',p:520},{k:'watch',e:'⌚',n:'手表',p:299},{k:'book',e:'📖',n:'书',p:45},{k:'box',e:'🎁',n:'盲盒',p:52}];
@@ -2258,9 +2259,20 @@ function renderTrace(){
     body.innerHTML='<div style="padding:60px 24px;text-align:center;color:#8b929c">今天还没有踪迹</div>';
     return;
   }
-  var pts=day.points;
+  
+  // ====== 修改开始：只保留当前时间及之前的行踪 ======
   var nowD=new Date();
   var nowMin=nowD.getHours()*60+nowD.getMinutes();
+  
+  // 过滤出已经发生过的行踪点
+  var visiblePts = day.points.filter(function(p){ return p.t <= nowMin; });
+  
+  if(!visiblePts.length){
+    body.innerHTML='<div style="padding:60px 24px;text-align:center;color:#8b929c">ta 今天还没出门</div>';
+    return;
+  }
+  
+  var pts=visiblePts;
   var curIdx=-1;
   for(var i=0;i<pts.length;i++){if(pts[i].t<=nowMin)curIdx=i;}
   var started=curIdx>=0;
@@ -2274,14 +2286,15 @@ function renderTrace(){
   h+='<div class="tr-hero">';
   h+='<div class="tr-hero-av" id="trHeroAv"></div>';
   h+='<div class="tr-hero-main">';
-  h+='<div class="tr-hero-lbl"><span class="tr-dot-live'+(started?'':' off')+'"></span>'+(started?('此刻 · '+goneTxt):('接下来 · '+_traceFmtT(cur.t)))+'</div>';
+  // 改了这里：如果是过去的时间点，显示“此刻”，不再显示“接下来”
+  h+='<div class="tr-hero-lbl"><span class="tr-dot-live'+(started?'':' off')+'"></span>'+(started?('此刻 · '+goneTxt):('刚开始'))+'</div>';
   h+='<div class="tr-hero-place">'+esc(cur.place)+'</div>';
   h+='<div class="tr-hero-act">'+esc(cur.act)+'</div>';
   h+='</div></div>';
 
   h+='<div class="tr-map">';
   h+='<div class="tr-map-grid"></div>';
-  h+=_traceMapSvg(pts);
+  h+=_traceMapSvg(pts); // 只连线已经走过的
   h+='<div class="tr-map-tag">今日足迹 · '+pts.length+' 个记录点</div>';
   h+='</div>';
 
